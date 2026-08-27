@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Віраж-Планшет Mobile</title>
+  
+  <!-- Оптимізація під iOS / iPhone -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Віраж">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    :root {
+      --bg-dark: #0b0e14;
+      --panel-bg: rgba(15, 23, 42, 0.92);
+      --panel-border: rgba(56, 189, 248, 0.25);
+      --accent-blue: #388bfd;
+      --accent-red: #f87171;
+      --text-main: #e2e8f0;
+      --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    body, html {
+      width: 100%; height: 100%; overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'JetBrains Mono', monospace;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      touch-action: manipulation;
+    }
+
+    #app-container {
+      display: flex; flex-direction: column;
+      width: 100vw; height: 100vh; position: relative;
+    }
+
+    #alert-banner {
+      position: absolute; top: calc(8px + env(safe-area-inset-top, 0px)); left: 12px; right: 12px; z-index: 1000;
+      background: rgba(220, 38, 38, 0.9); color: #fff; padding: 6px 12px; font-size: 10px; font-weight: bold;
+      letter-spacing: 1px; border-radius: 6px; border: 1px solid #ef4444; backdrop-filter: blur(8px);
+      text-align: center; box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+    }
+
+    #map { width: 100%; flex: 1; background: #0b0e14; cursor: crosshair; }
+    .leaflet-control-attribution { display: none !important; }
+
+    /* Маркери */
+    .target-container { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+    .target-icon-wrapper { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; }
+    .target-icon-wrapper svg { width: 100%; height: 100%; }
+    .target-label {
+      font-size: 9px; font-weight: bold; color: #fff; background: rgba(15, 23, 42, 0.9);
+      padding: 2px 5px; border: 1px solid var(--target-color, #ef4444); border-radius: 4px;
+    }
+
+    /* Мобільні шторки/панелі */
+    .info-panel {
+      position: absolute; background: var(--panel-bg); border: 1px solid var(--panel-border);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); padding: 12px; z-index: 1000;
+      font-size: 11px; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      transition: transform 0.25s ease-in-out;
+    }
+
+    /* Ліва панель як висувна картка */
+    #add-panel {
+      bottom: calc(36px + var(--safe-area-bottom)); left: 8px; right: 8px;
+      max-height: 45vh; overflow-y: auto; transform: translateY(120%);
+    }
+    #add-panel.active { transform: translateY(0); }
+
+    /* Права панель для редагування */
+    #editor-panel {
+      bottom: calc(36px + var(--safe-area-bottom)); left: 8px; right: 8px;
+      transform: translateY(120%); display: none;
+    }
+    #editor-panel.active { display: block; transform: translateY(0); }
+
+    .panel-header {
+      font-weight: 700; border-bottom: 1px solid var(--panel-border);
+      padding-bottom: 6px; margin-bottom: 8px; color: #38bdf8;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+
+    .form-group { margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+    .form-group label { color: #94a3b8; font-size: 10px; }
+    .form-group input, .form-group select {
+      background: rgba(30, 41, 59, 0.9); border: 1px solid #475569;
+      color: #f8fafc; padding: 5px 8px; font-size: 11px; border-radius: 6px; width: 140px; outline: none;
+    }
+
+    .btn {
+      width: 100%; background: #2563eb; color: #fff; border: none; padding: 10px;
+      font-weight: bold; font-size: 11px; cursor: pointer; border-radius: 8px; margin-top: 6px;
+    }
+    .btn-secondary { background: #0891b2; }
+    .btn-danger { background: #dc2626; margin-top: 8px; }
+
+    /* Кнопки швидкого виклику меню на iPhone */
+    #mobile-controls {
+      position: absolute; top: 48px; right: 12px; z-index: 999; display: flex; flex-direction: column; gap: 8px;
+    }
+    .fab-btn {
+      width: 42px; height: 42px; border-radius: 50%; background: var(--panel-bg);
+      border: 1px solid var(--panel-border); color: #38bdf8; font-size: 18px;
+      display: flex; align-items: center; justify-content: center; backdrop-filter: blur(10px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3); cursor: pointer;
+    }
+
+    #status-bar {
+      height: calc(28px + var(--safe-area-bottom)); background: #0f172a; border-top: 1px solid #1e293b;
+      display: flex; align-items: flex-start; justify-content: space-between;
+      padding: 6px 12px 0 12px; font-size: 10px; color: #94a3b8; z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+
+<div id="app-container">
+  <div id="alert-banner">УВАГА: ПОВІТРЯНА ЗАГРОЗA</div>
+
+  <!-- Кнопки швидкого доступу для iOS -->
+  <div id="mobile-controls">
+    <div class="fab-btn" onclick="toggleAddPanel()">⚙️</div>
+  </div>
+
+  <!-- Панель налаштувань спавну -->
+  <div id="add-panel" class="info-panel">
+    <div class="panel-header">
+      <span>⚙️ НАЛАШТУВАННЯ СПАВНУ</span>
+      <span onclick="toggleAddPanel()" style="padding: 0 8px; font-size: 14px;">✕</span>
+    </div>
+
+    <div class="form-group">
+      <label>Тип об'єкта:</label>
+      <select id="input-type">
+        <option value="shahed">БПЛА Shahed 136/131</option>
+        <option value="x101">КР Х-101 / Х-555</option>
+        <option value="kalibr">КР Калібр</option>
+        <option value="ballistic">Балістична (Іскандер-М)</option>
+        <option value="geran">Герань-3 / Герань-4</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Азимут (°):</label>
+      <input type="number" id="input-azimuth" value="240">
+    </div>
+
+    <div class="form-group">
+      <label>Висота H (м):</label>
+      <input type="number" id="input-height" value="850" step="50">
+    </div>
+
+    <div class="form-group">
+      <label>Швидкість V (км/г):</label>
+      <input type="number" id="input-speed" value="185" step="10">
+    </div>
+
+    <div class="form-group">
+      <label>Маркування:</label>
+      <select id="input-color">
+        <option value="#ef4444">Червоний (Ворог)</option>
+        <option value="#f97316">Помаранчевий</option>
+        <option value="#eab308">Жовтий</option>
+        <option value="#22c55e">Зелений (Свої)</option>
+      </select>
+    </div>
+
+    <button class="btn btn-secondary" onclick="addZoneAtCenter()">Зона ППО в центрі</button>
+  </div>
+
+  <!-- Панель редагування цілі -->
+  <div id="editor-panel" class="info-panel">
+    <div class="panel-header">
+      <span>🎯 ЦІЛЬ: <span id="selected-id-tag">НЕ ОБРАНО</span></span>
+      <span onclick="deselectTarget()" style="padding: 0 8px; font-size: 14px;">✕</span>
+    </div>
+
+    <div id="target-details" style="line-height: 1.5; margin-bottom: 8px;"></div>
+
+    <div class="form-group">
+      <label>Курс (°):</label>
+      <input type="range" id="vector-slider" min="0" max="360" value="0" oninput="updateSelectedAzimuth(this.value)">
+    </div>
+
+    <div class="form-group">
+      <label>Швидкість (км/г):</label>
+      <input type="number" id="edit-speed-input" oninput="updateSelectedSpeed(this.value)">
+    </div>
+
+    <button class="btn btn-danger" onclick="deleteSelectedTarget()">ВИДАЛИТИ ЦІЛЬ</button>
+  </div>
+
+  <div id="map"></div>
+
+  <div id="status-bar">
+    <span id="geo-coords">00.0000°, 00.0000°</span>
+    <span id="targets-count" style="color: #f87171; font-weight: bold;">ЦІЛЕЙ: 0</span>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+  const ICONS = {
+    shahed: `<svg viewBox="0 0 100 100"><path fill="currentColor" d="M50 5 L85 90 L65 80 L50 95 L35 80 L15 90 Z" fill-opacity="0.9" stroke="#fff" stroke-width="3"/></svg>`,
+    x101: `<svg viewBox="0 0 100 100"><path fill="currentColor" d="M45 5 L55 5 L55 40 L95 55 L95 65 L55 60 L55 85 L70 92 L70 98 L50 95 L30 98 L30 92 L45 85 L45 60 L5 65 L5 55 L45 40 Z" stroke="#fff" stroke-width="2"/></svg>`,
+    kalibr: `<svg viewBox="0 0 100 100"><path fill="currentColor" d="M46 2 L54 2 L54 45 L88 55 L88 62 L54 58 L54 88 L65 95 L50 92 L35 95 L46 88 L46 58 L12 62 L12 55 L46 45 Z" stroke="#fff" stroke-width="2"/></svg>`,
+    ballistic: `<svg viewBox="0 0 100 100"><path fill="currentColor" d="M50 0 L62 25 L58 85 L65 98 L50 92 L35 98 L42 85 L38 25 Z" stroke="#fff" stroke-width="2"/></svg>`,
+    geran: `<svg viewBox="0 0 100 100"><path fill="currentColor" d="M50 5 L88 88 L68 78 L50 92 L32 78 L12 88 Z" fill-opacity="0.9" stroke="#fff" stroke-width="3"/></svg>`
+  };
+
+  const TARGET_NAMES = {
+    shahed: 'БПЛА Shahed',
+    x101: 'КР Х-101',
+    kalibr: 'КР Калібр',
+    ballistic: 'Балістична',
+    geran: 'Герань-3/4'
+  };
+
+  const map = L.map('map', { center: [49.0000, 31.0000], zoom: 7, zoomControl: false });
+
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', { maxZoom: 16 }).addTo(map);
+
+  let activeTargets = {};
+  let selectedTargetId = null;
+
+  function generateID() { return Math.floor(1000 + Math.random() * 9000).toString(); }
+
+  function createMarkerIcon(t) {
+    return L.divIcon({
+      className: '',
+      html: `
+        <div class="target-container" style="--target-color: ${t.color}">
+          <div class="target-icon-wrapper" style="transform: rotate(${t.azimuth}deg); color: ${t.color}">
+            ${ICONS[t.type] || ICONS.shahed}
+          </div>
+          <div class="target-label">${t.name}</div>
+        </div>`,
+      iconSize: [100, 26],
+      iconAnchor: [13, 13]
+    });
+  }
+
+  function addTarget(lat, lng, preset = {}) {
+    const id = preset.id || generateID();
+    const type = preset.type || document.getElementById('input-type').value;
+    const target = {
+      id: id, type: type, name: TARGET_NAMES[type] || 'Ціль',
+      color: preset.color || document.getElementById('input-color').value,
+      azimuth: preset.azimuth || parseInt(document.getElementById('input-azimuth').value),
+      h: preset.h || parseInt(document.getElementById('input-height').value),
+      v: preset.v || parseInt(document.getElementById('input-speed').value),
+      lat: lat, lng: lng, history: []
+    };
+
+    target.marker = L.marker([lat, lng], { icon: createMarkerIcon(target) }).addTo(map);
+    target.vectorLine = L.polyline([], { color: target.color, weight: 2, dashArray: '4, 4' }).addTo(map);
+    target.trailLine = L.polyline([], { color: target.color, weight: 2, opacity: 0.5 }).addTo(map);
+
+    target.marker.on('click', (e) => {
+      L.DomEvent.stopPropagation(e);
+      selectTarget(id);
+    });
+
+    activeTargets[id] = target;
+    updateTargetsCount();
+  }
+
+  map.on('click', (e) => {
+    addTarget(e.latlng.lat, e.latlng.lng);
+    deselectTarget();
+  });
+
+  function selectTarget(id) {
+    selectedTargetId = id;
+    const t = activeTargets[id];
+    document.getElementById('add-panel').classList.remove('active');
+    document.getElementById('editor-panel').classList.add('active');
+    document.getElementById('selected-id-tag').innerText = t.name;
+    document.getElementById('vector-slider').value = t.azimuth;
+    document.getElementById('edit-speed-input').value = t.v;
+    renderDetails(t);
+  }
+
+  function deselectTarget() {
+    selectedTargetId = null;
+    document.getElementById('editor-panel').classList.remove('active');
+  }
+
+  function renderDetails(t) {
+    document.getElementById('target-details').innerHTML = `
+      Тип: <b style="color:#38bdf8">${t.name}</b> | В: <b>${t.h} м</b><br>
+      Азимут: <b>${t.azimuth}°</b>
+    `;
+  }
+
+  function toggleAddPanel() {
+    deselectTarget();
+    document.getElementById('add-panel').classList.toggle('active');
+  }
+
+  function updateSelectedAzimuth(val) {
+    if (!selectedTargetId) return;
+    const t = activeTargets[selectedTargetId];
+    t.azimuth = parseInt(val);
+    t.marker.setIcon(createMarkerIcon(t));
+    renderDetails(t);
+  }
+
+  function updateSelectedSpeed(val) {
+    if (!selectedTargetId) return;
+    const t = activeTargets[selectedTargetId];
+    t.v = parseInt(val) || 0;
+    renderDetails(t);
+  }
+
+  function deleteSelectedTarget() {
+    if (!selectedTargetId) return;
+    const t = activeTargets[selectedTargetId];
+    map.removeLayer(t.marker);
+    map.removeLayer(t.vectorLine);
+    map.removeLayer(t.trailLine);
+    delete activeTargets[selectedTargetId];
+    deselectTarget();
+    updateTargetsCount();
+  }
+
+  function addZoneAtCenter() {
+    L.circle(map.getCenter(), {
+      radius: 20000, color: '#38bdf8', fillColor: '#38bdf8', fillOpacity: 0.15, weight: 1.5
+    }).addTo(map);
+  }
+
+  function updateTargetsCount() {
+    document.getElementById('targets-count').innerText = `ЦІЛЕЙ: ${Object.keys(activeTargets).length}`;
+  }
+
+  setInterval(() => {
+    const dt = 0.2;
+    Object.values(activeTargets).forEach(t => {
+      if (t.v <= 0) return;
+      const speedInDeg = (t.v / 3600 / 111) * dt;
+      const rad = (t.azimuth * Math.PI) / 180;
+      t.lat += speedInDeg * Math.cos(rad);
+      t.lng += speedInDeg * Math.sin(rad);
+
+      const newPos = [t.lat, t.lng];
+      t.marker.setLatLng(newPos);
+      t.history.push(newPos);
+      if (t.history.length > 25) t.history.shift();
+      t.trailLine.setLatLngs(t.history);
+
+      const futureLat = t.lat + (speedInDeg * 500) * Math.cos(rad);
+      const futureLng = t.lng + (speedInDeg * 500) * Math.sin(rad);
+      t.vectorLine.setLatLngs([newPos, [futureLat, futureLng]]);
+    });
+  }, 200);
+
+  map.on('mousemove touchmove', (e) => {
+    document.getElementById('geo-coords').innerText = `${e.latlng.lat.toFixed(4)}°, ${e.latlng.lng.toFixed(4)}°`;
+  });
+
+  addTarget(49.5, 30.0, { type: 'shahed', azimuth: 120, v: 185 });
+</script>
+</body>
+</html>
